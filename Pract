@@ -1,0 +1,897 @@
+# ============================================================
+# PRACTICAL 1A - SIMPLE MACHINE LEARNING MODEL / LINEAR REGRESSION
+# ============================================================
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+df = pd.read_csv('C:/Users/admin/Desktop/ML/Cars.csv')
+df.head()
+
+plt.scatter(df['Milage'], df['Sell Price'])
+
+plt.scatter(df['Age'], df['Sell Price'])
+
+x = df[['Milage', 'Age']]
+y = df['Sell Price']
+
+from sklearn.model_selection import train_test_split
+x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2)
+len(x_train)
+len(x_test)
+
+from sklearn.linear_model import LinearRegression
+clf = LinearRegression()
+clf.fit(x_train, y_train)
+
+clf.predict(x_test)
+clf.score(x_test, y_test)
+
+
+# ============================================================
+# PRACTICAL 1B - PCA (FEATURE SELECTION / REDUCTION)
+# ============================================================
+
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+sc = StandardScaler()
+
+def PCA(X, num_components):
+    # Step-1
+    # X_meaned = X - np.mean(X, axis = 0)
+    X_meaned = sc.fit_transform(X)
+
+    # Step-2
+    cov_mat = np.cov(X_meaned, rowvar=False)
+
+    # Step-3
+    eigen_values, eigen_vectors = np.linalg.eigh(cov_mat)
+
+    # Step-4
+    sorted_index = np.argsort(eigen_values)[::-1]
+    sorted_eigenvalue = eigen_values[sorted_index]
+    sorted_eigenvectors = eigen_vectors[:, sorted_index]
+
+    # Step-5
+    eigenvector_subset = sorted_eigenvectors[:, 0:num_components]
+
+    # Step-6
+    X_reduced = np.dot(eigenvector_subset.transpose(), X_meaned.transpose()).transpose()
+    return X_reduced
+
+data = pd.read_csv('C:/Users/admin/Desktop/ML/iris.csv')
+data.head()
+
+# prepare the data
+x = data.iloc[:, 0:4]
+# prepare the target
+target = data.iloc[:, 4]
+x.head()
+target.head()
+
+# Applying it to PCA function
+mat_reduced = PCA(x, 2)
+
+# Creating a Pandas DataFrame of reduced Dataset
+principal_df = pd.DataFrame(mat_reduced, columns=['PC1', 'PC2'])
+
+# Display the Principal Components
+principal_df.head()
+
+# Concat it with target variable to create a complete Dataset
+principal_df = pd.concat([principal_df, pd.DataFrame(target)], axis=1)
+principal_df.head()
+
+import seaborn as sb
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(6, 6))
+sb.scatterplot(data=principal_df, x='PC1', y='PC2', hue="variety", s=60, palette='icefire')
+#sb.scatterplot(data=principal_df, x='PC1', y='PC2', s=60, palette='icefire')
+
+
+# ============================================================
+# PRACTICAL 2A - FIND-S ALGORITHM
+# ============================================================
+
+import pandas as pd
+import numpy as np
+
+data = pd.read_csv('C:/Users/admin/Desktop/ML/lab1.csv')
+data
+
+concepts = np.array(data)[:, :-1]
+concepts
+
+def train(con, tar):
+    for i, val in enumerate(tar):
+        if val == 'yes':
+            specific_h = con[i].copy()
+            break
+
+    for i, val in enumerate(con):
+        if tar[i] == 'yes':
+            for x in range(len(specific_h)):
+                if val[x] != specific_h[x]:
+                    specific_h[x] = '?'
+                else:
+                    pass
+    return specific_h
+
+concepts = np.array(data.iloc[:, :-1])
+target = np.array(data.iloc[:, -1])
+
+print("Instances are:\n", concepts)
+print("\nTarget Values are:", target)
+
+print(train(concepts, target))
+
+
+# ============================================================
+# PRACTICAL 2B - CANDIDATE-ELIMINATION ALGORITHM
+# ============================================================
+
+import numpy as np
+import pandas as pd
+
+data = pd.read_csv('C:/Users/admin/Desktop/ML/enjoysport.csv')
+data
+
+concepts = np.array(data.iloc[:, 0:-1])
+print("\nInstances are:\n", concepts)
+
+target = np.array(data.iloc[:, -1])
+print("\nTarget Values are: ", target)
+
+def learn(concepts, target):
+    specific_h = concepts[0].copy()
+
+    print("\nInitialization of specific_h and general_h")
+    print("\nSpecific Boundary: ", specific_h)
+
+    general_h = [
+        ["?" for i in range(len(specific_h))]
+        for i in range(len(specific_h))
+    ]
+
+    print("\nGeneric Boundary: ", general_h)
+
+    for i, h in enumerate(concepts):
+        print("\nInstance", i + 1, "is", h)
+
+        if target[i] == "yes":
+            print("Instance is Positive")
+
+            for x in range(len(specific_h)):
+                if h[x] != specific_h[x]:
+                    specific_h[x] = '?'
+                    general_h[x][x] = '?'
+
+        if target[i] == "no":
+            print("Instance is Negative")
+
+            for x in range(len(specific_h)):
+                if h[x] != specific_h[x]:
+                    general_h[x][x] = specific_h[x]
+                else:
+                    general_h[x][x] = '?'
+
+        print("Specific Boundary after", i + 1, "Instance is", specific_h)
+        print("Generic Boundary after", i + 1, "Instance is", general_h)
+        print("\n")
+
+    indices = [
+        i for i, val in enumerate(general_h)
+        if val == ['?'] * len(specific_h)
+    ]
+
+    for i in indices:
+        general_h.remove(['?'] * len(specific_h))
+
+    return specific_h, general_h
+
+
+s_final, g_final = learn(concepts, target)
+
+print("Final Specific_h:", s_final, sep="\n")
+print("Final General_h:", g_final, sep="\n")
+
+
+# ============================================================
+# PRACTICAL 3A - LEAST SQUARE REGRESSION
+# ============================================================
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+plt.rcParams['figure.figsize'] = (12.0, 9.0)
+
+# Preprocessing Input data
+data = pd.read_csv('C:/Users/admin/Desktop/ML/Data (2).csv')
+X = data.iloc[:, 0]
+Y = data.iloc[:, 1]
+plt.scatter(X, Y)
+plt.show()
+
+# Building the model
+#Calculating the means
+X_mean = np.mean(X)
+Y_mean = np.mean(Y)
+
+cov = 0
+var = 0
+
+for i in range(len(X)):
+    cov += (X[i] - X_mean)*(Y[i] - Y_mean)  # Calculate the covariance of X and Y
+    var += (X[i] - X_mean)**2  # Calculate the variance of X
+
+regcoeff = cov / var
+intercept = Y_mean - regcoeff*X_mean
+
+print(regcoeff, intercept)
+
+# Making predictions
+Y_pred = regcoeff*X + intercept
+
+plt.scatter(X, Y)  # actual
+plt.plot([min(X), max(X)], [min(Y_pred), max(Y_pred)], color='red')  # predicted
+plt.show()
+
+
+# ============================================================
+# PRACTICAL 3B - LOGISTIC REGRESSION
+# ============================================================
+
+import pandas as pd
+from matplotlib import pyplot as plt
+
+df = pd.read_csv('C:/Users/admin/Desktop/ML/insurance_data.csv')
+df.head()
+
+plt.scatter(df.Age, df.have_insurance, marker='+', color='red')
+plt.show()
+
+from sklearn.model_selection import train_test_split
+X_train, X_test, Y_train, Y_test = train_test_split(df[['Age']], df.have_insurance, test_size=0.1)
+
+from sklearn.linear_model import LogisticRegression
+model = LogisticRegression()
+
+model.fit(X_train, Y_train)  # Training the model
+model.predict(X_test)  # Prediction on the test set
+model.score(X_test, Y_test)  # Calculating the accuracy
+model.predict_proba(X_test)  # Predicting the probabilities
+
+
+# ============================================================
+# PRACTICAL 4A - HIERARCHICAL / AGGLOMERATIVE CLUSTERING
+# ============================================================
+
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.cluster import AgglomerativeClustering
+from scipy.cluster import hierarchy
+import csv
+
+# load the Penguins dataset
+file_path = r'C:/Users/admin/Desktop/ML/penguins.csv'
+data = pd.read_csv(file_path)
+data.head()
+
+data['species'].value_counts()
+print(data.shape)  # (344, 9)
+
+# trimming the dataset to the chosen columns and dropping rows with missing data
+df = data[['bill_length_mm', 'flipper_length_mm']]
+df = df.dropna(axis=0)
+df.head()
+
+# use Scipy's hierarchy.linkage() to form clusters and plot them with hierarchy.dendrogram()
+clusters = hierarchy.linkage(df, method="ward")
+plt.figure(figsize=(8, 6))
+dendrogram = hierarchy.dendrogram(clusters)
+# Plotting a horizontal Line based on the first biggest distance between clusters
+plt.axhline(150, color='red', linestyle='--');
+# Plotting a horizontal Line based on the second biggest distance between clusters
+plt.axhline(100, color='crimson');
+
+# perform Agglomerative Clustering with Scikit-Learn to find cluster Labels for the three types of penguins
+clustering_model = AgglomerativeClustering(n_clusters=3, linkage="ward")
+clustering_model.fit(df)
+labels = clustering_model.labels_
+
+# plot the data before and after Agglomerative Clustering with 3 clusters
+fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(15, 5))
+sns.scatterplot(ax=axes[0], data=df, x='bill_length_mm', y='flipper_length_mm').set_title('without clustering')
+sns.scatterplot(ax=axes[1], data=df, x='bill_length_mm', y='flipper_length_mm', hue=clustering_model.labels_).set_title('with clustering');
+
+# Agglomerative Clustering without specifying the number of clusters
+clustering_model_no_clusters = AgglomerativeClustering(linkage="ward")
+clustering_model_no_clusters.fit(df)
+labels_no_clusters = clustering_model_no_clusters.labels_
+
+# plot the data without Agglomerative Clustering, with 3 clusters and with no pre defined clusters
+fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(15, 5))
+sns.scatterplot(ax=axes[0], data=df, x='bill_length_mm', y='flipper_length_mm').set_title('without clustering')
+sns.scatterplot(ax=axes[1], data=df, x='bill_length_mm', y='flipper_length_mm', hue=clustering_model.labels_).set_title('with 3 clusters')
+sns.scatterplot(ax=axes[2],
+                data=df, x='bill_length_mm', y='flipper_length_mm',
+                hue=clustering_model_no_clusters.labels_).set_title('without choosing number of clusters');
+
+
+# ============================================================
+# PRACTICAL 4B - K-MEANS CLUSTERING
+# ============================================================
+
+# importing the libraries
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# importing the Iris dataset
+dataset = pd.read_csv('C:/Users/admin/Desktop/ML/Irisdata.csv')
+dataset.head()
+
+X = dataset.iloc[:, [1, 2, 3, 4]].values
+X
+
+from sklearn.cluster import KMeans
+wess = []
+
+for i in range(1, 11):
+    kmeans = KMeans(n_clusters=i, init='k-means++', max_iter=300, n_init=10, random_state=0)
+    kmeans.fit(X)
+    wess.append(kmeans.inertia_)
+
+# Plotting the results onto a Line graph, allowing us to observe 'The elbow'
+plt.plot(range(1, 11), wess)
+plt.title('The elbow method')
+plt.xlabel('Number of clusters')
+plt.ylabel('WCSS')  # within cluster sum of squares
+plt.show()
+
+# Applying kmeans to the dataset / Creating the kmeans classifier
+kmeans = KMeans(n_clusters=3, init='k-means++', max_iter=300, n_init=10, random_state=0)
+y_kmeans = kmeans.fit_predict(X)
+
+# Visualising the clusters
+plt.scatter(X[y_kmeans == 0, 0], X[y_kmeans == 0, 1], s=100, c='red', label='Iris-setosa')
+plt.scatter(X[y_kmeans == 1, 0], X[y_kmeans == 1, 1], s=100, c='blue', label='Iris-versicolour')
+plt.scatter(X[y_kmeans == 2, 0], X[y_kmeans == 2, 1], s=100, c='green', label='Iris-virginica')
+
+# Plotting the centroids of the clusters
+plt.scatter(kmeans.cluster_centers_[:, 0], kmeans.cluster_centers_[:, 1], s=100, c='yellow', label='Centrod')
+plt.legend()
+
+
+# ============================================================
+# PRACTICAL 5A - K-NEAREST NEIGHBOUR (IRIS)
+# ============================================================
+
+import pandas as pd
+import numpy as np
+from matplotlib import pyplot as plt
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn import preprocessing
+from sklearn.model_selection import train_test_split
+
+iris = pd.read_csv('C:/Users/admin/Desktop/ML/iris.csv')
+iris.head()
+iris.shape
+iris['variety'].value_counts()
+iris.columns
+iris.values
+
+X = iris.iloc[:, :4]
+X.head()
+y = iris.iloc[:, -1]
+y.head()
+
+X = preprocessing.StandardScaler().fit_transform(X)
+X[0:4]
+
+X_train, X_test, Y_train, Y_test = train_test_split(X, y, test_size=0.3)
+Y_test.shape
+
+knnmodel = KNeighborsClassifier(n_neighbors=3)
+knnmodel.fit(X_train, Y_train)
+
+Y_pred = knnmodel.predict(X_test)
+Y_pred
+
+from sklearn.metrics import accuracy_score
+accuracy_score(Y_test, Y_pred)
+
+from sklearn.metrics import confusion_matrix
+cm = confusion_matrix(Y_test.values, Y_pred)
+cm
+
+cm1 = pd.DataFrame(data=cm, index=['Setosa', 'Versicolor', 'Virginica'], columns=['Setosa', 'Versicolor', 'Virginica'])
+cm1
+pred_output = pd.DataFrame(data=[Y_test.values, Y_pred], index=['y_test', 'Y_pred'])
+pred_output.transpose()
+
+
+# ============================================================
+# PRACTICAL 5B - RULE-BASED METHOD / ASSOCIATION RULES
+# ============================================================
+
+!pip install apyori
+pip install mlxtend
+
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+
+data = pd.read_csv("C:/Users/admin/Desktop/ML/bread_basket.csv")
+data.head()
+
+transactions = []
+for i in data.Transaction.unique():
+    list_trans = list(set(data[data.Transaction == i]["Item"]))
+    if len(list_trans) > 0:
+        transactions.append(list_trans)
+print(transactions)
+
+import mlxtend
+from mlxtend.preprocessing import TransactionEncoder
+from mlxtend.frequent_patterns import association_rules, apriori
+
+trans_encoding = TransactionEncoder()
+df2 = trans_encoding.fit(transactions).transform(transactions)
+df3 = pd.DataFrame(df2, columns=trans_encoding.columns_)
+df3.head()
+
+frequent_set = apriori(df3, min_support=0.05, use_colnames=True)
+frequent_set
+
+rules = association_rules(frequent_set, metric='lift', min_threshold=1)
+rules
+
+
+# ============================================================
+# PRACTICAL 6 - DECISION TREE USING ID3
+# ============================================================
+
+
+Code
+
+import warnings
+warnings.filterwarnings('ignore')
+import pandas as pd
+from pandas import DataFrame
+​
+​
+r
+df_tennis = pd.DataFrame(data=pd.read_csv(r'C:\Users\santo\Downloads\PlayTennis.csv'))
+df_tennis.head()
+
+
+#Entropy formula procedure
+def entropy(probs):
+    import math
+    return sum([-prob*math.log(prob,2)for prob in probs])
+
+#Entropy calculation for the attributes
+def entropy_of_list(a_list): #Input list of class labels
+    from collections import Counter
+    cnt=Counter(x for x in a_list) #Counter calculates the proportion of class
+    num_instances=len(a_list)*1.0  #=14
+    probs=[x/num_instances for x in cnt.values()] #x means number of YES/NO 9/14 and 5/14
+    return entropy(probs) #Call Entropy
+
+#Calculating the Entropy of the target variable
+total_entropy=entropy_of_list(df_tennis['PlayTennis'])
+print('\n The total Entropy is:\n',total_entropy)
+
+
+
+#Calculating Information Gain
+def information_gain(df,split_attribute_name,target_attribute_name,trace=0):
+    df_split=df.groupby(split_attribute_name)#Split datasets into groups or subsets by literals
+    nobs=len(df.index)*1.0 #count total no of observations
+    #Compute Entropy and Proportion for each group
+    df_agg_ent=df_split.agg({target_attribute_name:[entropy_of_list,lambda x:len(x)/nobs]})[target_attribute_name]
+    df_agg_ent.columns=['Entropy','PropObservations'] #Renaming columns
+    new_entropy=sum(df_agg_ent['Entropy']*df_agg_ent['PropObservations'])
+    old_entropy=entropy_of_list(df[target_attribute_name])
+    return old_entropy-new_entropy #Explanation:df_split.agg() For each group, aggregate (agg) the target_attribute_name (PlayTennis) using two functions:
+​
+#entropy_of_list → entropy of that group’s labels.
+​
+#lambda x: len(x)/nobs → proportion of total rows that belong to this group.
+​
+#Example for "Outlook":
+​
+#Group "Sunny" (5 rows): entropy ≈ 0.971, proportion = 5/14.
+​
+#Group "Overcast" (4 rows): entropy = 0.0, proportion = 4/14.
+​
+#Group "Rain" (5 rows): entropy ≈ 0.971, proportion = 5/14.
+​
+#The [target_attribute_name] selects only the part of the DataFrame we care about.
+
+def id3(df,target_attribute_name,attribute_names,default_class=None):
+    from collections import Counter
+    cnt=Counter(x for x in df[target_attribute_name])# Count class labels YES/NO
+    if len(cnt)==1:#Pure subset indicating only one class left
+        return next(iter(cnt))#next input data set, or raises StopIteration when EOF is hit
+    elif df.empty or (not attribute_names):
+        return default_class #Return None for empty data set or no attributes left
+    else:
+        default_class=max(cnt.keys())#Assign the default class as the max between Yes/No
+        #Compute Information Gain for each attribute
+        gainz=[information_gain(df,attr,target_attribute_name)for attr in attribute_names]
+        #Select best attribute with maximum information gain
+        index_of_max=gainz.index(max(gainz))#Index of Best_Attribute
+        best_attr=attribute_names[index_of_max]
+        tree={best_attr:{}}#Initiate the tree with the best attribute as a node
+        #After choosing the best attribute, it’s removed from the list
+        remaining_attribute_names=[i for i in attribute_names if i!=best_attr]
+        #Recursive splitting and building subtrees
+        for attr_val,data_subset in df.groupby(best_attr):
+            subtree=id3(data_subset,target_attribute_name,remaining_attribute_names,default_class)
+            tree[best_attr][attr_val]=subtree # Attach the resulting subtree to the main tree
+        return tree
+
+attribute_names=list(df_tennis.columns)
+attribute_names.remove('PlayTennis')#Remove the class attirbute
+
+#Run Algorithm:
+from pprint import pprint
+tree=id3(df_tennis,'PlayTennis',attribute_names)
+print("\n The resulatnt DECISION TREE is:\n")
+pprint(tree)
+
+
+#Result for new instance
+def classify(instance,tree,default=None):
+    attribute=next(iter(tree)) #Get first attribute from the tree
+    if instance[attribute] in tree[attribute].keys(): #Check if instance value exists in the tree
+        result=tree[attribute][instance[attribute]] #Get the subtree
+        if isinstance(result,dict):#Recursive case: if result is still a tree
+            return classify(instance,result)
+        else:
+            return result
+​
+
+#Creation of Training set
+training_data=df_tennis.iloc[0:-4]
+print(training_data)
+
+
+#Test set
+test_data=df_tennis.iloc[-4:]
+print(test_data)
+  
+
+train_tree=id3(training_data,'PlayTennis',attribute_names)
+#Prediction on new Data
+test_data['predicted']=test_data.apply(classify,axis=1,args=(train_tree,'yes'))
+print(test_data['predicted'])
+#Prediction on new Data
+test_data['predicted']=test_data.apply(classify,axis=1,args=(train_tree,'yes'))
+print(test_data['predicted'])
+​
+
+ 
+# ============================================================
+# PRACTICAL 7A - NAIVE BAYES CLASSIFIER (WINE DATA)
+# ============================================================
+
+import numpy as np
+import pandas as pd
+
+from sklearn import datasets
+wine = datasets.load_wine()
+print(wine)
+
+print("Features: ", wine.feature_names)
+print("Labels: ", wine.target_names)
+
+X = pd.DataFrame(wine['data'])
+print(X.head())
+
+print(wine.data.shape)
+y = print(wine.target)
+
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(wine.data, wine.target, test_size=0.30, random_state=109)
+
+from sklearn.naive_bayes import GaussianNB
+gnb = GaussianNB()
+gnb.fit(X_train, y_train)
+
+y_pred = gnb.predict(X_test)
+print(y_pred)
+
+from sklearn import metrics
+print("Accuracy:", metrics.accuracy_score(y_test, y_pred))
+
+from sklearn.metrics import confusion_matrix
+cm = np.array(confusion_matrix(y_test, y_pred))
+cm
+
+
+# ============================================================
+# PRACTICAL 7B - NAIVE BAYES FOR TEXT CLASSIFICATION
+# ============================================================
+
+import pandas as pd
+msg = pd.read_csv(r'C:\Users\santo\Downloads\naivetext.csv')
+msg
+​
+
+print('The dimensions of the dataset', msg.shape)
+msg['labelnum'] = msg.label.map({'pos': 1, 'neg': 0})
+X = msg.message
+y = msg.labelnum
+print(X)
+print(y)
+​
+
+
+from sklearn.model_selection import train_test_split
+xtrain, xtest, ytrain, ytest = train_test_split(X, y)
+​
+​
+
+print('\n The total number of Training Data :', ytrain.shape)
+print('\n The total number of Test Data :', ytest.shape)
+​
+
+from sklearn.feature_extraction.text import CountVectorizer
+count_vect = CountVectorizer()
+xtrain_dtm = count_vect.fit_transform(xtrain)
+xtest_dtm = count_vect.transform(xtest)
+print('\n The words or Tokens in the text documents \n', count_vect.get_feature_names_out())
+
+
+print(xtest)
+print(predicted)
+
+# Training Naive Bayes (NB) classifier on training data
+from sklearn.naive_bayes import MultinomialNB
+​
+clf = MultinomialNB().fit(xtrain_dtm,ytrain)
+predicted = clf.predict(xtest_dtm)
+
+#printing accuracy, Confusion matrix, Precision and Recall
+from sklearn import metrics
+print('\n Accuracy of the classifer is ', metrics.accuracy_score(ytest,predicted))
+
+
+
+#Checking the prediction made
+print(xtest)
+print(predicted)
+
+
+print('\n Confusion matrix\n', metrics.confusion_matrix(ytest,predicted))
+print('\n The value of Recall' ,
+metrics.recall_score(ytest,predicted))
+
+ 
+
+
+# ============================================================
+# PRACTICAL 8 - BAYESIAN NETWORK (HEART DISEASE)
+# ============================================================
+
+import numpy as np
+import csv
+import pandas as pd
+from pgmpy.models import BayesianNetwork
+from pgmpy.estimators import MaximumLikelihoodEstimator
+from pgmpy.inference import VariableElimination
+​
+​
+
+heartDisease = pd.read_csv(r"C:\Users\santo\Downloads\heart (1).csv")
+heartDisease = heartDisease.replace('?', np.nan)
+​
+
+print('Few examples from the dataset are given below')
+print(heartDisease.head())
+​
+Few examples from the dataset are given below
+   age  sex  cp  trestbps  chol  fbs  restecg  thalach  exang  oldpeak  slope  \
+0   63    1   3       145   233    1        0      150      0      2.3      0   
+1   37    1   2       130   250    0        1      187      0      3.5      0   
+2   41    0   1       130   204    0        0      172      0      1.4      2   
+3   56    1   1       120   236    0        1      178      0      0.8      2   
+4   57    0   0       120   354    0        1      163      1      0.6      2   
+
+   ca  thal  target  
+0   0     1       1  
+1   0     2       1  
+2   0     2       1  
+3   0     2       1  
+4   0     2       1  
+
+​
+from pgmpy.models import DiscreteBayesianNetwork
+​
+model = DiscreteBayesianNetwork([
+    ('age', 'target'),
+    ('sex', 'target'),
+    ('exang', 'target'),
+    ('cp', 'target'),
+    ('target', 'restecg'),
+    ('target', 'chol')
+])
+​
+
+​
+import pgmpy
+print(pgmpy.__version__)
+​
+import pgmpy.estimators as estimators
+​
+print([name for name in dir(estimators) if "MLE" in name or "MaximumLikelihood" in name or "BayesianEstimator" in name])
+​
+1.1.2
+['BayesianEstimator', 'MLE', 'MaximumLikelihoodEstimator']
+
+estimator = MLE(model, heartDisease)
+cpds = estimator.get_parameters()
+model.add_cpds(*cpds)
+
+for cpd in model.get_cpds():
+    print(cpd)
+
+​
+from pgmpy.estimators import MaximumLikelihoodEstimator
+​
+estimator = MaximumLikelihoodEstimator(model, heartDisease)
+​
+cpds = estimator.get_parameters()
+model.add_cpds(*cpds)
+​
+print("Learned CPDs:")
+for cpd in model.get_cpds():
+    print(cpd)
+​
+Learned CPDs:
+
+print('\n Inferencing with Bayesian Network: ')
+HeartDisease_infer = VariableElimination(model)
+# Inferencing with Bayesian Network
+print('\n Inferencing with Bayesian Network:')
+HeartDisease_infer = VariableElimination(model)
+
+ Inferencing with Bayesian Network:
+
+print('\n 1. Probability of HeartDisease given RestEcg')
+q = HeartDisease_infer.query(variables=['restecg'], evidence={'target': 1}, joint=False)
+print(q['restecg'])
+
+ 1. Probability of HeartDisease given RestEcg
++------------+----------------+
+| restecg    |   phi(restecg) |
++============+================+
+| restecg(0) |         0.4121 |
++------------+----------------+
+| restecg(1) |         0.5818 |
++------------+----------------+
+| restecg(2) |         0.0061 |
++------------+----------------+
+
+print('\n 2. Probability of HeartDisease given Chestpain')
+q = HeartDisease_infer.query(variables=['target'], evidence={'cp': 3}, joint=False)
+print(q['target'])
+
+ 2. Probability of HeartDisease given Chestpain
++-----------+---------------+
+| target    |   phi(target) |
++===========+===============+
+| target(0) |        0.4588 |
++-----------+---------------+
+| target(1) |        0.5412 |
+
+# ============================================================
+# PRACTICAL 9 - LOCALLY WEIGHTED REGRESSION
+# ============================================================
+
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+
+def kernel(point, xmat, k):
+    m, n = np.shape(xmat)
+    weights = np.mat(np.eye((m)))
+    for j in range(m):
+        diff = point - X[j]
+        weights[j, j] = np.exp(diff*diff.T/(-2.0*k**2))
+    return weights
+
+def localWeight(point, xmat, ymat, k):
+    wei = kernel(point, xmat, k)
+    W = (X.T*(wei*X)).I*(X.T*(wei*ymat.T))
+    return W
+
+def localWeightRegression(xmat, ymat, k):
+    m, n = np.shape(xmat)
+    ypred = np.zeros(m)
+    for i in range(m):
+        ypred[i] = xmat[i]*localWeight(xmat[i], xmat, ymat, k)
+    return ypred
+
+data = pd.read_csv('C:/Users/admin/Desktop/ML/10-dataset.csv')
+bill = np.array(data.total_bill)
+tip = np.array(data.tip)
+
+mbill = np.mat(bill)
+mtip = np.mat(tip)
+m = np.shape(mbill)[1]
+one = np.mat(np.ones(m))
+X = np.hstack((one.T, mbill.T))
+
+ypred = localWeightRegression(X, mtip, 0.4)
+SortIndex = X[:, 1].argsort(0)
+xsort = X[SortIndex][:, 0]
+
+fig = plt.figure()
+ax = fig.add_subplot(1, 1, 1)
+ax.scatter(bill, tip, color='green')
+ax.plot(xsort[:, 1], ypred[SortIndex], color='red', linewidth=5)
+plt.xlabel('Total bill')
+plt.ylabel('Tip')
+plt.show()
+
+
+# ============================================================
+# PRACTICAL 10 - ARTIFICIAL NEURAL NETWORK / BACKPROPAGATION
+# ============================================================
+
+import numpy as np
+
+X = np.array(([2, 9], [1, 5], [3, 6]), dtype=float)
+y = np.array(([92], [86], [89]), dtype=float)
+X = X/np.amax(X, axis=0)
+y = y/100
+
+epoch = 5
+lr = 0.1
+inputlayer_neurons = 2
+hiddenlayer_neurons = 3
+output_neurons = 1
+
+wh = np.random.uniform(size=(inputlayer_neurons, hiddenlayer_neurons))
+bh = np.random.uniform(size=(1, hiddenlayer_neurons))
+wout = np.random.uniform(size=(hiddenlayer_neurons, output_neurons))
+bout = np.random.uniform(size=(1, output_neurons))
+
+def sigmoid(x):
+    return 1/(1 + np.exp(-x))
+
+def derivatives_sigmoid(x):
+    return x * (1 - x)
+
+for i in range(epoch):
+    hinp1 = np.dot(X, wh)
+    hinp = hinp1 + bh
+    hlayer_act = sigmoid(hinp)
+    outinp1 = np.dot(hlayer_act, wout)
+    outinp = outinp1 + bout
+    output = sigmoid(outinp)
+    EO = y-output
+    outgrad = derivatives_sigmoid(output)
+    d_output = EO * outgrad
+    EH = d_output.dot(wout.T)
+    hiddengrad = derivatives_sigmoid(hlayer_act)
+    d_hiddenlayer = EH * hiddengrad
+    wout += hlayer_act.T.dot(d_output) * lr
+    wh += X.T.dot(d_hiddenlayer) * lr
+    print("----------Epoch-", i+1, "Starts----------")
+    print("Input: \n" + str(X))
+    print("Actual Output: \n" + str(y))
+    print("Predicted Output: \n", output)
+    print("----------Epoch-", i+1, "Ends----------\n")
+
+print("Input: \n" + str(X))
+print("Actual Output: \n" + str(y))
+print("Predicted Output: \n", output)
