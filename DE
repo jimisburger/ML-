@@ -1,0 +1,1321 @@
+============================================================
+PRACTICAL NO. 1 - READING AND WRITING FILES
+============================================================
+Aim
+Read and write CSV and JSON files using plain Python and pandas, then build file pipelines with NiFi and Airflow.
+
+Basic concept
+A file is a saved collection of information. CSV is a table stored as text with commas between values. JSON stores key-value information and can contain nested lists/objects. pandas is a Python library that makes tabular data easier to read, inspect and save. NiFi connects visual processors; Airflow schedules code as tasks.
+
+Requirements
+Python 3, csv, json, Faker, pandas; Apache NiFi; Apache Airflow; a writable working directory. The manual's example data has name, age, street, city, state, zip, lng and lat fields.
+
+A. CSV FILES WITHOUT PANDAS AND WITH PANDAS
+
+A1. Write a CSV file without pandas
+1. Open a terminal and create a working directory: mkdir -p ~/practical1 && cd ~/practical1
+2. Ensure Faker is installed: python3 -m pip install Faker
+3. Create a file named write_csv.py and enter the code below.
+
+CODE - write_csv.py
+from faker import Faker
+import csv
+
+fake = Faker()
+output_file = "data.csv"
+header = ["name", "age", "street", "city", "state", "zip", "lng", "lat"]
+
+with open(output_file, "w", newline="", encoding="utf-8") as output:
+    writer = csv.writer(output)
+    writer.writerow(header)
+    for _ in range(1000):
+        writer.writerow([
+            fake.name(),
+            fake.random_int(min=18, max=80, step=1),
+            fake.street_address(),
+            fake.city(),
+            fake.state(),
+            fake.zipcode(),
+            float(fake.longitude()),
+            float(fake.latitude())
+        ])
+
+print("Created", output_file, "with 1000 records")
+
+4. Run it: python3 write_csv.py
+5. Verify it: head -n 5 data.csv and wc -l data.csv
+Expected output: a file named data.csv; wc -l should normally show 1001 lines (one header plus 1000 records).
+Why newline="" is used: it prevents extra blank lines with csv.writer on some systems.
+
+A2. Read a CSV file without pandas
+1. In the same directory, create read_csv.py.
+2. Enter and save:
+
+CODE - read_csv.py
+import csv
+
+with open("data.csv", "r", newline="", encoding="utf-8") as file:
+    reader = csv.DictReader(file)
+    for row in reader:
+        print(row["name"])
+
+3. Run: python3 read_csv.py
+Expected output: one name per line. DictReader uses the header names as keys.
+
+A3. Read and write CSV with pandas
+1. Install pandas if needed: python3 -m pip install pandas
+2. Create pandas_csv.py:
+
+CODE - pandas_csv.py
+import pandas as pd
+
+df = pd.read_csv("data.csv")
+print(df.head(10))
+print(df.shape)
+print(df.columns)
+df.to_csv("frompandas.csv", index=False)
+print("Saved frompandas.csv")
+
+3. Run: python3 pandas_csv.py
+Expected output: first ten rows, the dataset dimensions, column names, and a new file frompandas.csv.
+Code meaning: read_csv loads CSV into a DataFrame; head displays the first rows; shape returns (rows, columns); to_csv writes a file; index=False avoids adding pandas' row index as an extra column.
+
+B. JSON FILES WITHOUT PANDAS AND WITH PANDAS
+
+B1. Write a nested JSON file without pandas
+1. Create write_json.py in ~/practical1.
+2. Enter:
+
+CODE - write_json.py
+from faker import Faker
+import json
+
+fake = Faker()
+all_data = {"records": []}
+for _ in range(1000):
+    record = {
+        "name": fake.name(),
+        "age": fake.random_int(min=18, max=80),
+        "street": fake.street_address(),
+        "city": fake.city(),
+        "state": fake.state(),
+        "zip": fake.zipcode(),
+        "lng": float(fake.longitude()),
+        "lat": float(fake.latitude())
+    }
+    all_data["records"].append(record)
+
+with open("data.JSON", "w", encoding="utf-8") as output:
+    json.dump(all_data, output, indent=4)
+print("Created data.JSON")
+
+3. Run: python3 write_json.py
+4. Inspect the beginning: head -n 20 data.JSON
+Expected output: one JSON object containing a records list. Each item in that list is one person's record.
+
+B2. Read JSON without pandas
+1. Create read_json.py:
+
+CODE - read_json.py
+import json
+
+with open("data.JSON", "r", encoding="utf-8") as file:
+    data = json.load(file)
+
+print(data["records"][0])
+print(data["records"][0]["name"])
+
+2. Run: python3 read_json.py
+Expected output: the first record as a dictionary, followed by the first person's name.
+
+B3. Read JSON using pandas
+The manual names a section "Reading Nested JSON With pandas", but the surrounding text does not transcribe a complete code block for that section. The following is a clearly labelled helper example matching the nested {"records": [...]} structure above.
+
+CODE - pandas_json.py (helper example)
+import pandas as pd
+
+# Convert the records list from nested JSON into tabular rows.
+df = pd.read_json("data.JSON")
+records_df = pd.json_normalize(df["records"])
+print(records_df.head())
+records_df.to_csv("records_from_json.csv", index=False)
+
+If your pandas version reads the JSON structure differently, inspect the top-level object with json.load first. The important idea is to turn each item in records into a row.
+
+C. PIPELINE IN NIFI (GET CSV, FILTER AGE, EXTRACT NAME, WRITE FILE)
+
+Aim
+Read data.CSV, split it into records, keep rows where age > 40, obtain a name for the output filename, and write the result to a target directory.
+
+Requirements
+NiFi started; input file data.CSV; accessible input and output directories; CSVReader and CSVRecordSetWriter controller services.
+
+Steps
+1. Open NiFi at http://localhost:8081/nifi (or the configured URL).
+2. Drag GetFile onto the canvas. Set Input Directory to the folder containing data.CSV; set File Filter to data.CSV; set Keep Source File to true. Apply.
+3. Add SplitRecord. Set Record Reader to CSVReader and Record Writer to CSVRecordSetWriter. In CSVReader, enable Treat First Line as Header. Enable the selected controller services.
+4. Connect GetFile to SplitRecord.
+5. Add QueryRecord. Select the CSV reader and writer, and set Include Zero Record FlowFiles to false. Add a dynamic property named over.40 with query:
+   SELECT * FROM FLOWFILE WHERE age > 40
+   (NiFi Record SQL commonly uses FLOWFILE as the table name. If your version accepts the manual's displayed query wording, use the wording shown in your version.)
+6. Connect SplitRecord to QueryRecord and route the over.40 relationship onward.
+7. Add ExtractText. Add property name with value:
+   \n([^,]*),
+   This expression is from the manual and attempts to capture the first CSV field after a newline. It assumes the first field is name and the CSV is arranged as in the manual.
+8. Add UpdateAttribute. Add property filename with value:
+   ${name}
+9. Add PutFile. Set Directory to the output folder. The filename attribute will be used as the output file name. If NiFi needs a file extension, add the desired extension to the attribute (for example ${name}.csv) only if that is the required output for your lab.
+10. Connect the processors, configure success/failure relationships, start the processors, and inspect the output folder.
+
+Expected output
+Only records whose age is greater than 40 continue through the query relationship. NiFi creates output files in the configured directory. The filename extraction depends on the input CSV layout; test a small sample first.
+
+Precautions
+- Enable controller services before starting processors.
+- Verify the output directory exists and NiFi can write to it.
+- CSV content containing commas inside quoted names/addresses can make a simple ExtractText regex unreliable. QueryRecord is the correct place for record-based filtering.
+
+D. PIPELINE IN AIRFLOW (CSV TO JSON)
+
+Aim
+Create an Airflow DAG with a BashOperator start message followed by a Python task that reads data.CSV and writes JSON.
+
+Requirements
+Airflow installed and initialized, pandas installed in the same environment used by Airflow, input CSV at a known path, Airflow webserver and scheduler running.
+
+Steps
+1. Activate the Airflow environment, then go to the DAG directory. The manual shows:
+   source airflow_env/bin/activate
+   cd $AIRFLOW_HOME/dags
+   It also shows cd ~/airflow/dags. Use the DAG directory configured on your own Airflow instance.
+2. Create mycsvdag.py.
+3. Enter the compatibility example below. It expresses the same workflow as the manual while using imports commonly used in Airflow 2.x. Change INPUT_CSV if required.
+
+CODE - mycsvdag.py
+from datetime import datetime, timedelta
+import pandas as pd
+from airflow import DAG
+from airflow.operators.bash import BashOperator
+from airflow.operators.python import PythonOperator
+
+INPUT_CSV = "/home/ubuntu/data.CSV"
+OUTPUT_JSON = "/home/ubuntu/fromAirflow.JSON"
+
+def csv_to_json():
+    df = pd.read_csv(INPUT_CSV)
+    for _, row in df.iterrows():
+        print(row.get("name", ""))
+    df.to_json(OUTPUT_JSON, orient="records", indent=2)
+
+with DAG(
+    dag_id="MyCSVDAG",
+    default_args={
+        "owner": "paulcrickard",
+        "start_date": datetime(2026, 1, 1),
+        "retries": 1,
+        "retry_delay": timedelta(minutes=5),
+    },
+    schedule=timedelta(minutes=5),
+    catchup=False,
+) as dag:
+    print_starting = BashOperator(
+        task_id="starting",
+        bash_command='echo "I am reading the CSV now....."',
+    )
+    convert_csv_to_json = PythonOperator(
+        task_id="convertCSVtoJson",
+        python_callable=csv_to_json,
+    )
+    print_starting >> convert_csv_to_json
+
+4. Change /home/ubuntu/data.CSV and the output path to real paths on your machine.
+5. Install pandas in the Airflow Python environment, not only in system Python.
+6. Start Airflow according to your setup. The manual says airflow webserver and airflow scheduler; many installations require separate terminals/services.
+7. Open http://localhost:8080, find MyCSVDAG, unpause it, and trigger a run or wait for the schedule.
+8. Inspect the task logs and fromAirflow.JSON.
+Expected output: starting message, printed names in task logs, and a JSON records array. The input path must exist before the task runs.
+
+============================================================
+PRACTICAL NO. 2 - WORKING WITH DATABASE / DATABASE HANDLING
+============================================================
+Aim
+Handle database records in Python, export them, move them with NiFi, and automate extraction/loading with Airflow.
+
+Basic concept
+A relational database stores data in tables. A row is a record; a column is a field. PostgreSQL is the database in this practical. Elasticsearch is the destination used in the manual's NiFi/Airflow flows.
+
+A. HANDLING DATABASE IN PYTHON
+
+Requirements
+PostgreSQL server, pgAdmin, Python packages psycopg2 (or psycopg2-binary), pandas and Faker. The manual names database dataengineering in the setup steps, while later examples use DE. Use one consistent database name and credentials.
+
+Steps
+1. Open pgAdmin and connect to the PostgreSQL server.
+2. Right-click Databases > Create > Database. Name it dataengineering (or the exact database name your instructor requires).
+3. Create a table named users. The manual's screenshot does not provide a fully readable textual schema. Later practicals refer to userid, name, age, street, city, state and zip; Practical 2's Airflow code selects name and city. Coordinate the actual table columns with the schema in your lab.
+4. One compatible example schema for the later people-data stages is shown below. Treat this as a setup template if the existing table does not already exist:
+
+SQL - compatible example schema
+CREATE TABLE IF NOT EXISTS users (
+    userid INTEGER PRIMARY KEY,
+    name TEXT,
+    age INTEGER,
+    street TEXT,
+    city TEXT,
+    state TEXT,
+    zip TEXT
+);
+
+5. Install the Python packages in the environment you will use:
+   python3 -m pip install psycopg2-binary pandas Faker
+6. Connect to PostgreSQL, insert one record, then query it. Example template (replace database/password if needed):
+
+CODE - connect_insert_read.py
+import psycopg2
+
+conn = psycopg2.connect(
+    host="localhost",
+    database="dataengineering",
+    user="postgres",
+    password="postgres"
+)
+cur = conn.cursor()
+cur.execute(
+    "INSERT INTO users (userid, name, age, street, city, state, zip) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s) "
+    "ON CONFLICT (userid) DO NOTHING",
+    (1, "Asha Example", 25, "1 Main Road", "Mumbai", "Maharashtra", "400001")
+)
+conn.commit()
+cur.execute("SELECT userid, name, city FROM users ORDER BY userid LIMIT 5")
+for row in cur.fetchall():
+    print(row)
+cur.close()
+conn.close()
+
+7. For the manual's "Insert 1000 records using faker" step, use the complete loop below. It generates unique userid values and uses parameterized SQL. Do not build SQL by joining user text into the query.
+
+CODE - insert_1000_users.py
+from faker import Faker
+import psycopg2
+
+fake = Faker()
+conn = psycopg2.connect(
+    host="localhost", database="dataengineering",
+    user="postgres", password="postgres"
+)
+try:
+    cur = conn.cursor()
+    for userid in range(1, 1001):
+        cur.execute(
+            "INSERT INTO users (userid, name, age, street, city, state, zip) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (userid, fake.name(), fake.random_int(18, 80),
+             fake.street_address(), fake.city(), fake.state(), fake.zipcode())
+        )
+    conn.commit()
+    print("Inserted 1000 records")
+finally:
+    conn.close()
+
+8. Extract data using SELECT and pandas read_sql_query, then export with to_csv. Example:
+
+CODE - export_users.py
+import pandas as pd
+import psycopg2
+
+conn = psycopg2.connect(
+    host="localhost", database="dataengineering",
+    user="postgres", password="postgres"
+)
+df = pd.read_sql_query("SELECT * FROM users", conn)
+df.to_csv("postgresqldata.csv", index=False)
+print(df.head())
+print("Data exported to postgresqldata.csv")
+conn.close()
+
+9. Run scripts and check that the record count in PostgreSQL corresponds to the number inserted. Inspect the CSV file.
+Expected output: a connection succeeds, rows can be inserted/read, and postgresqldata.csv contains the selected table data.
+Common errors: authentication failed (check user/password), relation does not exist (check table/database), duplicate primary key (use unique ids), module not found (install package in the correct environment), connection refused (check PostgreSQL service/port).
+
+B. PIPELINE IN NIFI (POSTGRESQL TO ELASTICSEARCH)
+
+Aim
+Extract rows from PostgreSQL, split/prepare the data, and index the records in Elasticsearch.
+
+Requirements
+NiFi at the configured URL, running PostgreSQL, database table, a DBCPConnectionPool service, JSONRecordSetWriter, Elasticsearch reachable at http://localhost:9200.
+
+Steps
+1. Add ExecuteSQLRecord; open Configure.
+2. Create/select a DBCPConnectionPool controller service with the PostgreSQL JDBC URL, driver, database, user and password. Enable the service. The manual refers to configuring this controller service in the processor settings.
+3. Set ExecuteSQLRecord's SQL query to the table/query required in your lab (for example SELECT * FROM users).
+4. Configure the Record Writer as JSONRecordSetWriter. Set Output Grouping to One Line Per Object, as stated in the manual.
+5. Add SplitText and connect ExecuteSQLRecord to it. Configure its line split setting as appropriate for the JSON record output; exact additional properties are shown in the manual screenshots.
+6. Add PutElasticsearchHttp and connect the output. Set Elasticsearch URL to http://localhost:9200, Index to fromnifi, Type to doc, and Index Operation to index, following the manual.
+7. Start processors in downstream-to-upstream order if queues are accumulating, then inspect queues and processor status.
+8. Verify in a browser or terminal: http://localhost:9200/_cat/indices?v
+Expected output: the fromnifi index is listed and indexed records become searchable. Elasticsearch API options vary by version; if this legacy processor is missing or rejected, the NiFi/Elasticsearch versions need to be aligned with your lab manual.
+
+C. PIPELINE IN AIRFLOW (POSTGRESQL TO CSV TO ELASTICSEARCH)
+
+Aim
+Use one Airflow task to query PostgreSQL and save a CSV, then a second task to read that CSV and index records in Elasticsearch.
+
+Steps
+1. Activate the Airflow environment and create a DAG file in the DAG folder.
+2. Install psycopg2, pandas and the Elasticsearch Python client in the Airflow environment.
+3. Use the same PostgreSQL database name and credentials as Practical 2A. The manual code uses dbname='DE', user='postgres', password='postgres', and queries name, city from users; change these values to match the real database.
+4. Create two Python functions: query_postgresql() writes postgresqldata.csv, and insert_elasticsearch() reads it and sends each row to an Elasticsearch index.
+5. Create two PythonOperator tasks and set query_task >> insert_task so extraction runs before indexing.
+6. Start/refresh the Airflow scheduler and webserver, open the UI, unpause the DAG, and trigger a run.
+7. Check task logs, the CSV file and Elasticsearch index.
+Version caution: the manual's Elasticsearch call uses legacy arguments such as doc_type and body. Newer Elasticsearch clients may use different method signatures. Use the API matching the client/server version installed for your lab.
+Expected output: first task writes a CSV, second task indexes records into an index named frompostgresql (the manual's example). The task dependency guarantees the CSV task runs first.
+
+Complete Airflow code template for this sub-practical (Airflow 2-style imports; change database credentials and index to match the installed Elasticsearch client):
+
+CODE - practical2_db_dag.py
+from datetime import datetime, timedelta
+import pandas as pd
+import psycopg2
+from elasticsearch import Elasticsearch
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+
+CSV_PATH = "/home/ubuntu/postgresqldata.csv"
+
+def query_postgresql():
+    conn = psycopg2.connect(
+        host="localhost", dbname="DE", user="postgres", password="postgres"
+    )
+    try:
+        df = pd.read_sql_query("SELECT name, city FROM users", conn)
+        df.to_csv(CSV_PATH, index=False)
+    finally:
+        conn.close()
+    print("Data saved to CSV")
+
+def insert_elasticsearch():
+    es = Elasticsearch("http://localhost:9200")
+    df = pd.read_csv(CSV_PATH)
+    for _, row in df.iterrows():
+        es.index(index="frompostgresql", document=row.to_dict())
+    print("Records indexed")
+
+with DAG(
+    dag_id="MyDBdag",
+    start_date=datetime(2026, 1, 1),
+    schedule=timedelta(minutes=5),
+    default_args={"owner": "paulcrickard", "retries": 1, "retry_delay": timedelta(minutes=5)},
+    catchup=False,
+) as dag:
+    get_data = PythonOperator(task_id="QueryPostgreSQL", python_callable=query_postgresql)
+    insert_data = PythonOperator(task_id="InsertDataElasticsearch", python_callable=insert_elasticsearch)
+    get_data >> insert_data
+
+The manual's code uses legacy Elasticsearch arguments doc_type/body. The helper template above uses document for current clients; if your course uses the legacy client, follow the manual's call style.
+
+============================================================
+PRACTICAL NO. 3 - CLEANING, TRANSFORMING AND ENRICHING DATA
+============================================================
+Aim
+Perform exploratory data analysis in Python, fix common data problems, create/modify columns, enrich data and automate cleaning with Airflow.
+
+Basic concept
+Cleaning makes data consistent and usable. Transformation changes its shape or values. Enrichment adds useful information or derived fields. EDA (exploratory data analysis) means inspecting a dataset before deciding what changes are needed.
+
+A. EXPLORATORY DATA ANALYSIS IN PYTHON
+
+Requirements
+Python, pandas, and the source CSV used in the manual. The Airflow example uses scooter.csv with columns including region_id and started_at. The exact data values are not transcribed in the manual's text, so use the supplied class dataset.
+
+Steps
+1. Put the source CSV in your working folder and note the exact path.
+2. Load it with pandas: df = pd.read_csv("yourfile.csv").
+3. Inspect the first/last rows with df.head() and df.tail(), dimensions with df.shape, and fields/types with df.info().
+4. Summarize numeric columns with df.describe(); inspect categories with df["column"].value_counts().
+5. Check missing values with df.isna().sum() and duplicate rows with df.duplicated().sum().
+6. Handle common data issues as required: drop an unwanted column with df.drop(columns=["column"]), drop rows with missing values with df.dropna(), or remove duplicates with df.drop_duplicates(). Always confirm the effect using df.shape.
+7. Create/modify columns with direct assignment, string functions or date extraction; for example df["new_col"] = ... . Ensure date/time columns are parsed with pd.to_datetime before filtering.
+8. Enrich data by adding a derived column, lookup value or other attribute relevant to the source. The manual has screenshots for these operations but does not transcribe every expression as text; use the actual column names and rule demonstrated in the supplied pages 17-22.
+9. Save the cleaned/enriched result with df.to_csv("cleaned_data.csv", index=False).
+10. Re-open the output file and verify the column names, row count and data types.
+
+Useful EDA template (generic scaffolding, not a verbatim transcription of screenshot code)
+import pandas as pd
+
+df = pd.read_csv("yourfile.csv")
+print(df.head())
+print(df.shape)
+print(df.info())
+print(df.describe(include="all"))
+print(df.isna().sum())
+print("Duplicate rows:", df.duplicated().sum())
+
+Expected output: summaries of the dataset and a saved cleaned/enriched file. Do not delete rows/columns until you understand why they are unwanted.
+
+B. CLEANING DATA USING AIRFLOW
+
+Aim
+Automate cleaning scooter.csv, drop region_id, standardize column names, parse started_at dates, filter dates from 2019-05-23 to 2019-06-03, and copy the result to an output folder.
+
+Steps
+1. Place scooter.csv at the source path used by the DAG (manual: /home/ubuntu/scooter.csv; change if needed).
+2. Create a DAG file in the Airflow DAG folder.
+3. Define a cleanScooter task to read CSV, remove region_id, lowercase column names, parse started_at using the specified format %m/%d/%Y %H:%M, and write cleanscooter.csv.
+4. Define filterData to read cleanscooter.csv, filter started_at between 2019-05-23 and 2019-06-03, and write may23-june3.csv.
+5. Define a BashOperator copy task to copy may23-june3.csv to the desired destination.
+6. Set dependencies clean -> filter -> copy. In a modern Airflow 2 environment use airflow.operators.python and airflow.operators.bash imports if legacy imports fail.
+7. Trigger the DAG from the Airflow UI and examine all three task logs and output files.
+
+Important correction to logic
+Convert started_at to datetime before comparing it to dates. Prefer an explicit half-open interval to include all times on May 23 and exclude June 4:
+mask = (df["started_at"] >= "2019-05-23") & (df["started_at"] < "2019-06-04")
+The manual's text uses greater-than and less-than operators, which can exclude records exactly at the start boundary.
+
+Expected output
+cleanscooter.csv has the unwanted column removed and normalized column names; may23-june3.csv contains the selected date window; the copy task puts the file in the configured destination.
+
+Complete Airflow 2-style DAG template (the manual's source imports are older Airflow operator paths):
+
+CODE - CleanData.py
+from datetime import datetime, timedelta
+import pandas as pd
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from airflow.operators.bash import BashOperator
+
+SOURCE = "/home/ubuntu/scooter.csv"
+CLEANED = "/home/ubuntu/cleanscooter.csv"
+FILTERED = "/home/ubuntu/may23-june3.csv"
+DESTINATION = "/home/ubuntu/Desktop"
+
+def clean_scooter():
+    df = pd.read_csv(SOURCE)
+    df.drop(columns=["region_id"], inplace=True, errors="ignore")
+    df.columns = [column.lower() for column in df.columns]
+    df["started_at"] = pd.to_datetime(
+        df["started_at"], format="%m/%d/%Y %H:%M", errors="coerce"
+    )
+    df.to_csv(CLEANED, index=False)
+
+def filter_data():
+    df = pd.read_csv(CLEANED, parse_dates=["started_at"])
+    start = pd.Timestamp("2019-05-23")
+    stop = pd.Timestamp("2019-06-04")
+    filtered = df[(df["started_at"] >= start) & (df["started_at"] < stop)]
+    filtered.to_csv(FILTERED, index=False)
+
+with DAG(
+    dag_id="CleanData",
+    start_date=datetime(2026, 1, 1),
+    schedule=timedelta(minutes=5),
+    default_args={"owner": "paulcrickard", "retries": 1, "retry_delay": timedelta(minutes=5)},
+    catchup=False,
+) as dag:
+    clean_task = PythonOperator(task_id="clean", python_callable=clean_scooter)
+    filter_task = PythonOperator(task_id="filter", python_callable=filter_data)
+    copy_task = BashOperator(
+        task_id="copy",
+        bash_command=f"cp {FILTERED} {DESTINATION}/",
+    )
+    clean_task >> filter_task >> copy_task
+
+Common errors: wrong source path, date format mismatch, started_at not parsed as datetime, destination directory does not exist, or pandas unavailable inside the Airflow environment.
+
+============================================================
+PRACTICAL NO. 4 - API INTEGRATION
+============================================================
+Aim
+Build NiFi pipelines using InvokeHTTP and ExecuteScript to retrieve DummyJSON data, and use SeeClickFix to retrieve and transform 311 issue information.
+
+Basic concept
+An API lets one program request data from another service. HTTP GET normally retrieves data. JSON is a common response format. A pipeline must handle successful responses and failures.
+
+A. NIFI PIPELINE WITH INVOKEHTTP - DUMMYJSON
+
+Steps
+1. Open NiFi and add GenerateFlowFile. Rename it Start API. Keep defaults and set Run Schedule to 1 min, as the manual directs.
+2. Add InvokeHTTP (the manual spells it InvokeHTTP in prose and has a typographical variation in one place). Rename it as appropriate.
+3. Configure the HTTP method as GET and the remote URL as the DummyJSON products endpoint: https://dummyjson.com/products. Preserve the lab's exact URL if the instructor specifies another endpoint.
+4. Connect GenerateFlowFile to InvokeHTTP. Use the response relationship for downstream response handling.
+5. Add LogAttribute and connect the response relationship to it. Keep defaults for the basic demonstration.
+6. Start the processors and inspect NiFi queues/provenance or logs to confirm an HTTP response was received.
+Expected output: response FlowFile/attributes and a logged response pathway. A status code alone does not guarantee that JSON content was parsed.
+
+B. NIFI PIPELINE WITH EXECUTESCRIPT - DUMMYJSON
+
+Steps
+1. Add GenerateFlowFile and rename it Start DummyJSON.
+2. Add ExecuteScript and rename it Query DummyJSON.
+3. The supplied manual's script uses Python/Jython 2 style imports (urllib2) and NiFi's StreamCallback. This code is appropriate only for a compatible legacy NiFi/Jython environment. On a recent NiFi version, use InvokeHTTP or a supported scripting engine instead.
+4. In compatible legacy NiFi, set Script Engine to Python, paste the code below, connect the success relationship to LogAttribute, and keep a failure route for debugging.
+
+CODE - ExecuteScript body (legacy Jython style from the manual, tidied formatting)
+import json
+import urllib2
+from org.apache.nifi.processor.io import StreamCallback
+
+class ModJSON(StreamCallback):
+    def process(self, inputStream, outputStream):
+        try:
+            url = "https://dummyjson.com/products"
+            rawreply = urllib2.urlopen(url).read()
+            reply = json.loads(rawreply)
+            outputStream.write(bytearray(json.dumps(reply, indent=4).encode("utf-8")))
+        except Exception:
+            outputStream.write(bytearray(json.dumps({"error": "Unable to access API"}, indent=4).encode("utf-8")))
+
+flowFile = session.get()
+if flowFile is not None:
+    flowFile = session.write(flowFile, ModJSON())
+    session.transfer(flowFile, REL_SUCCESS)
+
+5. Add LogAttribute and connect ExecuteScript to it. Start the processors.
+6. Inspect the FlowFile content/Provenance to verify that the response contains product JSON or the error object.
+Note: for production, route API failures to REL_FAILURE and capture exception details rather than converting all failures to a success-only response.
+
+C. NIFI PIPELINE WITH EXECUTESCRIPT - SEECLICKFIX / 311
+
+Aim
+Fetch issue records from SeeClickFix, split issues into one record per FlowFile, derive fields, extract the issue ID, and load to Elasticsearch; request additional pages using pagination metadata.
+
+Requirements
+NiFi legacy ExecuteScript/Jython support for the manual's code, Elasticsearch and Kibana (manual: Kibana http://localhost:5601, Elasticsearch http://localhost:9200), and network access to the API.
+
+Steps
+1. In Kibana Dev Tools, create the index/mapping named scf following the mapping shown in the manual screenshot. The complete mapping JSON is screenshot-based in the supplied PDF; do not invent field types if your instructor expects the exact mapping.
+2. Add GenerateFlowFile, rename Start Flow Fake Data, set Run Schedule to 20 sec.
+3. Add ExecuteScript, rename Query SCF, select Python only if supported by your installed NiFi; otherwise use a supported processor/engine.
+4. The request parameters shown in the manual are place_url=bernalillo-county and per_page=100. The URL base is https://seeclickfix.com/api/v2/issues? . The manual's code line omits a comma between the two dictionary entries; add it so the dictionary is valid:
+   param = {"place_url": "bernalillo-county", "per_page": "100"}
+
+Legacy Jython ExecuteScript body for the first API request (only for a NiFi version that supports the manual's Python/Jython script engine):
+
+CODE - Query SCF
+import json
+import urllib
+import urllib2
+from org.apache.nifi.processor.io import StreamCallback
+
+errorOccurred = False
+class ModJSON(StreamCallback):
+    def process(self, inputStream, outputStream):
+        global errorOccurred
+        try:
+            param = {"place_url": "bernalillo-county", "per_page": "100"}
+            url = "https://seeclickfix.com/api/v2/issues?" + urllib.urlencode(param)
+            rawreply = urllib2.urlopen(url).read()
+            reply = json.loads(rawreply)
+            outputStream.write(bytearray(json.dumps(reply, indent=4).encode("utf-8")))
+        except Exception:
+            errorOccurred = True
+
+flowFile = session.get()
+if flowFile is not None:
+    flowFile = session.write(flowFile, ModJSON())
+    if errorOccurred:
+        session.transfer(flowFile, REL_FAILURE)
+    else:
+        session.transfer(flowFile, REL_SUCCESS)
+
+5. Use urllib.urlencode(param) in Jython 2 to build the query string, retrieve the response, parse it with json.loads, and write formatted JSON to the FlowFile. Route errors to REL_FAILURE.
+6. Add SplitJson, rename Split Issues, set JsonPath Expression to $.issues. This emits each element of the issues array as a separate FlowFile.
+7. Add another ExecuteScript, rename Transform SCF. Parse the current JSON record. Create coords as the string "lat,lng" and opendate as the date portion before T in created_at. The manual's intended transformations are:
+   reply["coords"] = str(reply["lat"]) + "," + str(reply["lng"])
+   reply["opendate"] = reply["created_at"].split("T")[0]
+   Write the updated JSON and route exceptions to failure.
+8. Add EvaluateJsonPath, rename Get Issue ID, add property id = $.id.
+9. Add PutElasticsearchHttp, rename Load SCF Elasticsearch. Set URL http://localhost:9200, index scf, type doc and operation upsert, matching the manual's legacy processor configuration.
+10. Add ExecuteScript, rename Get Every Page. Read metadata.pagination, use its next_page_url to request further pages where available, and write the next page response. The manual's condition compares page and pages; avoid requesting a page when no next_page_url exists.
+11. Connect all processors in the manual's order and start from the downstream end. Watch bulletins and failed queues.
+12. Verify the scf index in Elasticsearch/Kibana.
+
+Expected output
+Issue records are individually transformed and indexed in scf; the next-page script is intended to fetch additional API pages. API schemas and authentication/availability can change, so a live service failure is not necessarily a NiFi configuration failure.
+
+============================================================
+PRACTICAL NO. 5 - STAGING
+============================================================
+Aim
+A. NiFi pipeline that starts with PostgreSQL data, stages it in a file, reads the file back and loads it into a database.
+B. Airflow pipeline that extracts PostgreSQL data to a staging file and reads that file in a later task.
+
+Basic concept
+Staging is a temporary holding area that separates extraction from final loading. It makes it possible to inspect, retry, or validate data between stages.
+
+A. NIFI PIPELINE WITH STAGING
+
+Steps
+1. Start NiFi at http://localhost:8081/nifi.
+2. Create a Process Group and open it.
+3. Add ExecuteSQLRecord; rename Extract_From_PostgreSQL. Configure its DBCPConnectionPool service with the correct JDBC URL/database/credentials and enable it. Set the SQL query to the source table used in your lab.
+4. Add PutFile; rename Stage_Data_To_File. Configure Directory to the staging folder and set an appropriate conflict strategy. Connect ExecuteSQLRecord to PutFile.
+5. Add ListFile; rename Read_Staging_File. Set its Input Directory to the same staging folder used by PutFile.
+6. Add FetchFile; rename Fetch_Staging_File. Connect ListFile to FetchFile. ListFile identifies files; FetchFile reads the content.
+7. Add QueryRecord. Select CSVReader as Record Reader and CSVRecordSetWriter as Record Writer, as stated in the manual. Configure the CSV reader's header handling to match the staged file.
+8. Add the database-writing processor. The manual labels the final processor PutDataRecord in its text, but this may refer to PutDatabaseRecord in the NiFi UI. Use the database-record processor available in your installed version; configure its DBCP service, table name and CSV/record reader to match the target database.
+9. Connect the processor chain, enable controller services, start processors, and inspect the staging file and destination table.
+Expected output: a staging file is created, re-read, optionally queried/transformed, and loaded into the database.
+Precaution: do not let ListFile repeatedly reprocess the same file unintentionally. Use a separate input staging folder or move/rename files after successful loading.
+
+B. AIRFLOW PIPELINE WITH STAGING IN A FILE
+
+Steps
+1. Create the staging directory first: mkdir -p ~/staging
+2. Activate Airflow's environment and enter its DAG directory.
+3. Create Practical5_Staging.py.
+4. Use two Python tasks: extract_data reads PostgreSQL and saves users_staging.csv; load_data reads the file and prints it. The manual uses database DE, postgres user and postgres password; change these to match your setup.
+
+CODE - Practical5_Staging.py (Airflow 2-style imports)
+from datetime import datetime
+import pandas as pd
+import psycopg2
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+
+STAGING_FILE = "/home/ubuntu/staging/users_staging.csv"
+
+def extract_data():
+    conn = psycopg2.connect(
+        host="localhost", database="DE",
+        user="postgres", password="postgres"
+    )
+    try:
+        df = pd.read_sql_query("SELECT * FROM users", conn)
+        df.to_csv(STAGING_FILE, index=False)
+    finally:
+        conn.close()
+
+def load_data():
+    df = pd.read_csv(STAGING_FILE)
+    print(df)
+    print("Staged file successfully read.")
+
+with DAG(
+    dag_id="Practical5_Staging",
+    start_date=datetime(2026, 1, 1),
+    schedule=None,
+    catchup=False,
+) as dag:
+    extract_task = PythonOperator(
+        task_id="extract_and_stage", python_callable=extract_data
+    )
+    load_task = PythonOperator(
+        task_id="read_staged_file", python_callable=load_data
+    )
+    extract_task >> load_task
+
+5. Replace /home/ubuntu/staging/users_staging.csv with a path that exists for the Airflow user; create the directory and grant write access.
+6. Run/refresh the scheduler and webserver, open http://localhost:8080, unpause the DAG and trigger it.
+7. Verify that the file exists and both tasks succeed.
+Expected output: users_staging.csv is created from PostgreSQL; the second task's logs show the contents and "Staged file successfully read." The second task runs only after extraction succeeds.
+
+============================================================
+PRACTICAL NO. 6 - VALIDATION USING GREAT EXPECTATIONS
+============================================================
+Aim
+Generate sample people data, define data expectations and build a NiFi flow that runs validation and separates pass/fail results.
+
+Basic concept
+Great Expectations (GX) lets you express data-quality rules as expectations. Examples: a column exists, values are not null, and ages fall within a specified range.
+
+Requirements
+Python virtual environment with great_expectations and Faker; NiFi; accessible script paths; people.csv.
+
+Steps 1-4: Create data and validation scripts
+1. Create a project and activate the environment as the manual says:
+   mkdir -p ~/peoplepipeline
+   cd ~/peoplepipeline
+   source ~/ge_env/bin/activate
+   great_expectations init
+2. Create loadcsv.py with the script below.
+
+CODE - loadcsv.py
+from faker import Faker
+import csv
+
+fake = Faker()
+with open("people.csv", "w", newline="", encoding="utf-8") as output:
+    writer = csv.writer(output)
+    writer.writerow(["name", "age", "street", "city", "state", "zip", "lng", "lat"])
+    for _ in range(1000):
+        writer.writerow([
+            fake.name(), fake.random_int(min=18, max=80),
+            fake.street_address(), fake.city(), fake.state(), fake.zipcode(),
+            fake.longitude(), fake.latitude()
+        ])
+print('{"status":"Complete"}')
+
+3. Run: python3 loadcsv.py. Confirm people.csv exists and has 1001 lines including header.
+4. Create create_suite.py with the following intended expectations. This follows the API form shown in the manual; Great Expectations APIs vary by version.
+
+CODE - create_suite.py
+import great_expectations as gx
+context = gx.get_context()
+validator = context.sources.pandas_default.read_csv("/home/ubuntu/peoplepipeline/people.csv")
+for column in ["name", "age", "street", "city", "state", "zip", "lng", "lat"]:
+    validator.expect_column_to_exist(column)
+validator.expect_column_values_to_not_be_null("name")
+validator.expect_column_values_to_not_be_null("age")
+validator.expect_column_values_to_be_between("age", min_value=18, max_value=80)
+validator.save_expectation_suite(discard_failed_expectations=False)
+print("Expectation suite created successfully.")
+
+5. Run: python3 create_suite.py. If the API errors, check the Great Expectations version and use the suite/validator workflow for that installed version. Do not assume every GX 0.x and 1.x API is interchangeable.
+6. Create peoplevalidatescript.py. It should load people.csv, run the same checks, collect each result, compute success = all(result["success"] for result in results), and print JSON {"result":"pass"} or {"result":"fail"}. The manual's code enumerates 11 results: eight required columns, non-null name, non-null age, and age between 18 and 80.
+7. Run the validator directly from the activated environment first. Confirm that the script exits successfully and prints the JSON result.
+
+Steps 8-15: Connect validation to NiFi
+8. Create a NiFi Process Group.
+9. Add GenerateFlowFile to initiate the check.
+10. Add ExecuteStreamCommand to run the data-generation script if the lab expects NiFi to generate data. Configure Command Path to the Python executable in the environment and Command Arguments to the correct script path. The settings are pictured in the manual, and exact property labels can vary by NiFi version.
+11. Add a second ExecuteStreamCommand to run the validation script. Point it to the Great Expectations environment's Python executable and the path to peoplevalidatescript.py.
+12. Add EvaluateJsonPath. Extract the result property from the JSON printed by the validation script (JSONPath: $.result, attribute name such as result).
+13. Add RouteOnAttribute. Add conditions for pass and fail based on the extracted result attribute; for example, pass when ${result:equals('pass')} and fail when ${result:equals('fail')}.
+14. Add two PutFile processors, one for pass and one for fail, and configure separate output directories. Connect the pass and fail relationships to the appropriate processor.
+15. Run the pipeline. Confirm one output is written in the pass folder for a successful check. Modify a test copy of data to create a failing condition only if your instructor asks you to test the fail path.
+
+Expected output
+The direct script prints JSON indicating pass/fail. NiFi routes the result to the matching PutFile destination. A pass does not mean the dataset is perfect; it means it passed only the expectations configured here.
+Common errors: command path points to wrong Python; Great Expectations installed in a different environment; file path mismatch; ExecuteStreamCommand arguments incorrectly separated; EvaluateJsonPath points to wrong JSON field.
+
+============================================================
+PRACTICAL NO. 7 - VERSION CONTROL USING NIFI REGISTRY
+============================================================
+Aim
+Connect NiFi to NiFi Registry, place a process group under version control, inspect a local change and commit a new version.
+
+Basic concept
+Version control records changes over time. A bucket in NiFi Registry is a container for versioned flows. A committed flow version can be identified and restored/compared later.
+
+Requirements
+NiFi and compatible NiFi Registry installed; manual path ~/nifi-registry-0.7.0 and Registry URL http://localhost:18080/nifi-registry.
+
+Steps
+1. In terminal, go to the Registry install directory and start it:
+   cd ~/nifi-registry-0.7.0
+   sudo ./bin/nifi-registry.sh start
+2. Open http://localhost:18080/nifi-registry.
+3. Open Settings and choose New Bucket. Create a bucket (for example SCF or the name required in your practical).
+4. Open NiFi. Go to Controller Settings > Registry Clients, click + and add a Registry client pointing to the Registry URL.
+5. Create/open a Processor Group and name it SCF.
+6. Right-click the SCF group > Version > Start version control. Choose the Registry client and the bucket, provide a flow name and description, and save the initial version.
+7. Verify that the group shows version information and that the flow appears in Registry.
+8. Add a LogAttribute processor inside SCF.
+9. Right-click the group > Version > Show local changes. Confirm that LogAttribute is listed as a local change.
+10. Choose Version > Commit local changes. Enter a message such as "Added LogAttribute processor" and commit.
+11. Return to NiFi Registry and verify that a new version (for example version 2) exists.
+
+Expected output
+The process group is version controlled and the addition of LogAttribute becomes a new committed version.
+Common errors: incompatible NiFi and Registry versions, wrong Registry URL, no bucket selected, or attempting to commit while a processor has invalid configuration. Do not put passwords/secrets into version-controlled variable values unless your deployment's security practice allows it.
+
+============================================================
+PRACTICAL NO. 8 - MONITORING NIFI PIPELINE
+============================================================
+Aim
+A. Count records with UpdateCounter.
+B. Send notification using Slack.
+C. Read NiFi health/status/bulletins/counters through REST API.
+
+A. NIFI PIPELINE USING UPDATE COUNTER
+Steps
+1. Use the API/issue pipeline from Practical 4 or create the same request flow.
+2. Add InvokeHTTP, configure the endpoint as required, then connect its response relationship to SplitJson.
+3. Configure SplitJson to split the JSON array used in your API response. The exact JSONPath depends on the API response structure.
+4. Add EvaluateJsonPath and extract the fields needed later in the pipeline; configure the properties according to the response JSON and manual screenshot.
+5. Add UpdateCounter. Set Counter Name to SCFtoElasticsearch, as stated in the manual.
+6. Connect successful record FlowFiles through UpdateCounter and then to PutElasticsearchHttp. Configure the Elasticsearch URL/index for your lab.
+7. Start the pipeline and inspect the Counters/status in NiFi.
+Expected output: the counter increases as FlowFiles pass through UpdateCounter. Count is the number of FlowFiles/visits through this processor, not automatically the number of individual records in a JSON array unless SplitJson has separated them.
+
+B. NIFI PIPELINE USING SLACK
+Steps
+1. Create a Slack app/workspace integration as permitted by your organisation, enable Incoming Webhooks and copy the webhook URL privately.
+2. Add PutSlack to the NiFi flow.
+3. Connect the failure relationship from PutElasticsearchHttp to PutSlack, as described by the manual. Configure webhook and message content according to the fields available in the installed processor.
+4. Do not paste the private webhook URL into shared notes or public logs.
+5. Test only in a safe test environment. The manual suggests changing the Elasticsearch URL to http://localhost:9999 to force a connection failure and exercise the failure route. Use that test only when it will not affect a real workload; restore the correct URL after testing.
+6. Confirm a Slack message is received and the success/failure queues behave as intended.
+Expected output: on the configured failure path, NiFi attempts to send a message to Slack. If the Slack request itself fails, inspect the processor bulletin and retry settings.
+
+C. NIFI PIPELINE USING REST API
+Requirements
+Python requests library; NiFi REST API reachable at http://localhost:8081/nifi-api in the manual. Authentication may be required in secured deployments.
+
+Step 1 - system diagnostics
+1. Create folder and script:
+   mkdir -p ~/practical8
+   cd ~/practical8
+   nano monitor_nifi.py
+2. Enter:
+
+CODE - system diagnostics
+import requests
+
+url = "http://localhost:8081/nifi-api/system-diagnostics"
+response = requests.get(url, timeout=10)
+response.raise_for_status()
+data = response.json()
+snapshot = data["systemDiagnostics"]["aggregateSnapshot"]
+print("Maximum Heap:", snapshot["maxHeap"])
+print("Total Threads:", snapshot["totalThreads"])
+print("Heap Utilization:", snapshot["heapUtilization"])
+
+3. Run: python3 monitor_nifi.py
+
+Step 2 - process group status
+1. Replace the script content with the process-group query below. Replace process_group_id with the ID shown in your NiFi URL/API.
+
+CODE - process group
+import requests
+
+process_group_id = "REPLACE_WITH_REAL_PROCESS_GROUP_ID"
+url = f"http://localhost:8081/nifi-api/process-groups/{process_group_id}"
+response = requests.get(url, timeout=10)
+response.raise_for_status()
+data = response.json()
+print("Process Group:", data["component"]["name"])
+print("Status:")
+print(data.get("status", {}))
+
+2. Run the script and compare the status with the NiFi UI.
+
+Step 3 - bulletins
+Use this script to read the bulletin board:
+
+CODE - bulletins
+import requests
+url = "http://localhost:8081/nifi-api/flow/bulletin-board"
+response = requests.get(url, timeout=10)
+response.raise_for_status()
+print(response.json())
+
+Step 4 - counters
+Use this script to read counters:
+
+CODE - counters
+import requests
+url = "http://localhost:8081/nifi-api/counters"
+response = requests.get(url, timeout=10)
+response.raise_for_status()
+print(response.json())
+
+Expected output
+JSON data with system diagnostics, process-group status, bulletins or counters. If the request returns 401/403, the server is secured and requires authentication/authorization; do not disable security just to make the example work.
+
+============================================================
+PRACTICAL NO. 9 - DEPLOYING DATA PIPELINE NIFI - I
+============================================================
+Aim
+A. Monitor/change backpressure.
+B. Connect two process groups using input/output ports.
+
+Basic concept
+Backpressure is a safety mechanism: when too many FlowFiles or too much data waits in a connection queue, NiFi slows/stops sending more until the queue is reduced. Process groups divide a large flow into manageable pieces. Output and Input Ports carry data between groups.
+
+A. MONITORING AND CONTROLLING BACKPRESSURE
+Steps
+1. Create a process group named Practical9_backpressure.
+2. Open it and add GenerateFlowFile. Set its schedule/number of FlowFiles according to the lab demonstration.
+3. Add PutFile and configure a writable output directory.
+4. Connect GenerateFlowFile to PutFile.
+5. Open the connection settings. Set the Object Threshold (backpressure object threshold) to 100 FlowFiles, matching the manual's instruction to wait until about 100 FlowFiles fill the queue before starting PutFile. If the interface labels differ, identify the corresponding backpressure threshold in your NiFi version.
+6. Start GenerateFlowFile while PutFile is stopped. Observe the queued FlowFiles and backpressure status. Then start PutFile and observe the queue drain.
+7. Stop processors and clear queues only if safe and permitted by the instructor.
+Expected output: the queue grows, the connection displays backpressure when the threshold is reached, and the queue shrinks when the downstream processor runs.
+
+B. PIPELINE WITH TWO PROCESSOR GROUPS USING INPUT/OUTPUT PORTS
+Steps
+1. Create Process Group 1 named Generate Data.
+2. Inside Generate Data, add and configure GenerateFlowFile. Configure the generated content as JSON if the next stages expect JSON.
+3. Add an Output Port named FromGeneratedData.
+4. Connect GenerateFlowFile to that Output Port and connect the appropriate relationship.
+5. Return to the parent canvas and create Process Group 2 named Write Data.
+6. Open Write Data and add an Input Port named FromGeneratedData. The port name at both ends should match the lab's chosen convention.
+7. Add EvaluateJsonPath to extract any fields required for the destination filename/attributes. Configure JSONPath properties for fields present in the input.
+8. Add UpdateAttribute to form or adjust a filename attribute. Configure a dynamic property such as filename only if required by the lab's desired output.
+9. Add PutFile and configure the destination directory.
+10. Connect Input Port -> EvaluateJsonPath -> UpdateAttribute -> PutFile.
+11. Return to the parent canvas and connect the Output Port of Generate Data to the Input Port of Write Data.
+12. Enable required processors and start both groups. Inspect the output directory.
+Expected output: FlowFiles generated in the first group cross the port boundary and are written by the second group.
+Common errors: port names/configurations do not line up, a relationship is unconnected, JSONPath references a field not present, or PutFile lacks permission to write.
+
+============================================================
+PRACTICAL NO. 10 - DEPLOYING DATA PIPELINE NIFI - II
+============================================================
+Aim
+A. Use a NiFi Variable Registry.
+B. Use a simple deployment strategy with DEV, TEST and PROD flow instances.
+
+Basic concept
+Variables let a process group keep environment-specific settings separate from the flow logic. Versioned flow templates can be imported into DEV, TEST and PROD while each group supplies its own index name or other settings.
+
+A. NIFI VARIABLE REGISTRY
+Steps
+1. Create a process group named postgresToelasticsearch.
+2. Add ExecuteSQLRecord and configure the PostgreSQL DBCPConnectionPool. Enable the service.
+3. Add PutElasticsearchHttp and set its Elasticsearch URL property to ${elastic}, index to ${nifivariable}, type to doc and Index Operation to index, matching the manual.
+4. Connect ExecuteSQLRecord to PutElasticsearchHttp and make sure the record writer/service configuration is valid.
+5. Right-click the process group > Variables (or Configure > Variables in the installed UI).
+6. Add variable elastic with value http://localhost:9200.
+7. Add variable nifivariable with the intended destination index name (the manual uses nifivariable). Variable names are case-sensitive in expression references; ensure names match exactly.
+8. Start the pipeline and verify the index via http://localhost:9200/_cat/indices?v.
+Expected output: records reach an index selected by the variable, and the URL/index can be changed at the group level without editing the processor property itself.
+
+B. SIMPLE STRATEGY - DEV, TEST, PROD
+Steps
+1. Create labels DEV, TEST and PROD on the NiFi canvas; place each flow instance in its intended region.
+2. In DEV, use the postgresToelasticsearch group and rename the group postgresToelasticsearch_DEV.
+3. Open NiFi Registry at http://localhost:18080/nifi-registry; create a bucket named Practical10.
+4. Start version control for the DEV process group and save the flow as postgresToelasticsearch in the Practical10 bucket.
+5. Create the TEST process group by importing the version 1 flow from the Registry client. Rename it postgresToelasticsearch_TEST.
+6. Open the TEST group's variables and change the index to nifivariable_test. Do not change DEV's variable by mistake.
+7. Run TEST and verify that Elasticsearch lists the test index.
+8. Import the same version 1 flow again as the PROD group. Rename it postgresToelasticsearch_PROD.
+9. Change the PROD index variable to nifivariable_prod.
+10. Run PROD when appropriate and verify the production index.
+11. Keep DEV, TEST and PROD data targets distinct to avoid accidental writes to the wrong index.
+Expected output: three process group instances share the same versioned flow logic but target different index names. The manual's page 60 labels the final creation step as TEST again; based on its following steps explicitly naming PROD, treat the last imported group as PROD and verify with the instructor if the lab sheet uses a different name.
+
+============================================================
+PRACTICAL NO. 11 - PRODUCTION DATA PIPELINE
+============================================================
+Aim
+Assemble a production-style multi-stage NiFi pipeline that reads JSON data from a data lake, inspects and routes it, sends notifications, loads PostgreSQL staging/warehouse structures, validates data and uses version control.
+
+Important note
+The manual provides many of this practical's settings as screenshots and numbered steps (pages 61-78). The overview below preserves those named components and explicit SQL/variable values; screenshot-only property values should be copied from the original manual rather than guessed.
+
+Requirements
+NiFi, NiFi Registry, PostgreSQL/pgAdmin, a folder used as a data lake, Great Expectations and its Python environment, Slack configuration if used, and the data schema expected by the manual.
+
+Steps
+1. In pgAdmin, create the test database. Create a staging table. The manual instructs using the table SQL as a template to create a warehouse table and then creating a production database with equivalent tables; follow the exact table columns from the screenshots/schema used in class.
+2. Create a data-lake directory:
+   mkdir -p ~/datalake
+   cd ~/datalake
+   Place the JSON input file(s) used by the manual in this directory.
+3. Open NiFi Registry and create a bucket named DataLake.
+4. Create Process Group 1 named ReadDataLake.
+5. Add GetFile, set it to read the data-lake directory, and configure file handling as shown in the manual.
+6. Add EvaluateJsonPath to extract the JSON attributes required for downstream processing.
+7. Add UpdateCounter to count processed FlowFiles.
+8. Add an Output Port and connect the first group internally: GetFile -> EvaluateJsonPath -> UpdateCounter -> Output Port.
+9. Create Process Group 2 and add an Input Port.
+10. Add ScanContent, then EvaluateJsonPath, then PutSlack as shown. Configure the Slack connection privately, and add an Output Port for the next group.
+11. Connect the processors in Group 2 and verify success/failure relationships. This stage checks/scans content and sends the configured notification.
+12. Create Process Group 3; add an Input Port.
+13. Add PutSQL. Configure DBCPConnectionPool to use the PostgreSQL database at jdbc:postgresql://localhost:5432/test (manual value).
+14. Set SQL statement to the insert shown in the manual, with the expected attributes:
+    INSERT INTO staging VALUES ('${userid}', '${name}', ${age}, '${street}', '${city}', '${state}', '${zip}');
+    Ensure the staging table has the matching column order/types. Attribute values must exist; quote/string handling must match the real schema.
+15. Add UpdateCounter, then Output Port, and connect the processors.
+16. Create Process Group 4; add Input Port, ExecuteSQLRecord, EvaluateJsonPath and RouteOnAttribute; create an Output Port and connect the group according to the manual diagram. This stage queries/re-evaluates staged data and routes it based on conditions.
+17. Create Process Group 5. Create a project directory for validation:
+    mkdir -p ~/staging
+    cd ~/staging
+18. Configure Great Expectations as in Practical 6 and create a validation suite for the fields/rules required by this production data flow.
+19. Add Input Port and ExecuteStreamCommand to run the validation script from the correct Python environment.
+20. Add EvaluateJsonPath to extract the validation result; add RouteOnAttribute to split the pass/fail path; add the Output Port(s) shown in the manual.
+21. Create Process Group 6, add an Input Port and ExecuteSQLRecord.
+22. Add SplitText, EvaluateJsonPath and PutSQL. Configure the destination table and columns based on the table schema established in Step 1.
+23. Connect the Group 6 processors to load the records into the target database table.
+24. On the relevant process group, open Configure > Variables and add the values shown in the manual: Table = staging; Warehouse = warehouse. Reference these using matching NiFi expressions only where the processor property expects a variable.
+25. Start version control for ReadDataLake and select the DataLake bucket. The manual's example description is "Read JSON files from data lake" and version comment "Initial version". Repeat for the other groups as directed.
+26. Connect process groups using the Input/Output Ports, verify that every connection reaches its expected destination, enable controller services and start the complete flow from downstream to upstream.
+27. Monitor queues, bulletins, counters, database row counts and validation output. Test on sample data before using valuable/production data.
+
+Expected output
+The flow reads JSON files from the data lake, extracts fields, counts records, can send Slack notifications, inserts into PostgreSQL staging and moves data through SQL and validation stages towards the warehouse/production structures. Validate each group separately before running the entire chain.
+
+Safety/quality precautions
+- Do not run INSERT statements against a real production database while testing.
+- Confirm the staging table column order matches the positional INSERT INTO staging VALUES statement; explicit column names are safer when allowed.
+- Treat screenshots as authoritative for processor properties the text does not list.
+- Confirm version-control commit after changing process groups.
+
+============================================================
+PRACTICAL NO. 12 - APACHE KAFKA WITH NIFI PIPELINE
+============================================================
+Aim
+Generate 1,000 people records, publish them to Kafka, then use NiFi processor groups to read a file, publish records to Kafka, consume messages and write output to a file.
+
+Basic concept
+Kafka stores streams of records in topics. A producer publishes messages; a consumer reads messages. NiFi can act as a producer and consumer. JSON Lines (JSONL) means each line contains one independent JSON object, which suits one-message-per-record publishing.
+
+Requirements
+Python 3, Faker, Kafka installation from the manual (~/kafka_2.13-3.5.1), ZooKeeper if that Kafka distribution/setup requires it, NiFi with PublishKafka_2_0/ConsumerKafka_2_0 processors, and writable folders.
+
+Steps 1-3: Generate people_1000.jsonl
+1. Create the project directory:
+   cd ~
+   mkdir -p ~/faker_kafka_nifi_practical
+   cd ~/faker_kafka_nifi_practical
+2. Create a Python virtual environment:
+   python3 -m venv venv
+   source venv/bin/activate
+   python -m pip install Faker
+   If venv is missing: sudo apt update && sudo apt install python3-venv
+3. Create generate_people.py and enter:
+
+CODE - generate_people.py
+import json
+import random
+from faker import Faker
+
+fake = Faker("en_US")
+random.seed(42)
+Faker.seed(42)
+OUTPUT_FILE = "people_1000.jsonl"
+TOTAL_RECORDS = 1000
+
+with open(OUTPUT_FILE, "w", encoding="utf-8") as file:
+    for user_id in range(1, TOTAL_RECORDS + 1):
+        person = {
+            "userid": user_id,
+            "name": fake.name(),
+            "age": random.randint(18, 75),
+            "street": fake.street_address(),
+            "city": fake.city(),
+            "state": fake.state(),
+            "zip": fake.zipcode()
+        }
+        file.write(json.dumps(person) + "\n")
+
+print(f"Successfully generated {TOTAL_RECORDS} records.")
+print(f"Output file: {OUTPUT_FILE}")
+with open(OUTPUT_FILE, "r", encoding="utf-8") as file:
+    print("First record:")
+    print(file.readline().strip())
+
+4. Run: python generate_people.py
+5. Verify:
+   ls -lh people_1000.jsonl
+   wc -l people_1000.jsonl
+   head -n 5 people_1000.jsonl
+   tail -n 1 people_1000.jsonl
+Expected output: 1000 lines; each line is one JSON object with userid, name, age, street, city, state and zip. Seeded Faker/random makes the generated output more reproducible than unseeded generation.
+
+Steps 4-6: Start Kafka and test topic
+6. Check running Java processes: jps. The manual says look for QuorumPeerMain and Kafka. Check ports: sudo ss -ltnp | grep -E ':2181|:9092'.
+7. If required and not running, open a terminal for ZooKeeper:
+   cd ~/kafka_2.13-3.5.1
+   bin/zookeeper-server-start.sh config/zookeeper.properties
+8. In a separate terminal start Kafka:
+   cd ~/kafka_2.13-3.5.1
+   bin/kafka-server-start.sh config/server.properties
+   Wait for the broker startup to complete.
+9. Create the topic:
+
+COMMAND
+cd ~/kafka_2.13-3.5.1
+bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --topic faker_people_1000 --partitions 1 --replication-factor 1
+
+10. If it already exists, list topics:
+    bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+11. Describe topic:
+    bin/kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic faker_people_1000
+12. Publish all lines to Kafka:
+
+COMMAND
+cd ~/faker_kafka_nifi_practical
+~/kafka_2.13-3.5.1/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic faker_people_1000 < people_1000.jsonl
+
+13. Verify by consuming the first five messages:
+
+COMMAND
+cd ~/kafka_2.13-3.5.1
+bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic faker_people_1000 --from-beginning --max-messages 5
+
+Expected output: five JSON lines from the topic. If commands hang/fail, verify the broker, topic name, port and paths.
+
+Steps 7-23: Build the NiFi pipeline
+14. Open NiFi. Create Process Group 1 named Faker_ReadDataLake.
+15. Add GetFile and configure its directory as ~/faker_kafka_nifi_practical (use the full absolute path in NiFi). Make sure it reads people_1000.jsonl and handles the source file as intended.
+16. Add SplitText and configure it so each line/JSON record becomes a separate FlowFile. Keep headers disabled because JSONL has no header row.
+17. Add Output Port named ToFakerKafkaProducer and connect SplitText to it.
+18. Create Process Group 2 named Faker_KafkaProducer.
+19. Add Input Port named FromFakerDataLak (this spelling appears in the manual; use the same name at both ends if preserving its diagram).
+20. Add ControlRate and configure it to throttle the record rate as required by your lab screenshot.
+21. Add PublishKafka_2_0. Configure bootstrap servers to localhost:9092 and topic to faker_people_1000; configure serializer/record properties according to the installed processor and screenshot.
+22. Add Output Port named FakerKafkaPublished and connect the publish flow as shown.
+23. Create Process Group 3 named Faker_KafkaConsumer.
+24. Add Input Port named FromFakerDataLak, LogAttribute and ConsumerKafka_2_0. Configure the consumer with localhost:9092 and topic faker_people_1000, and use the required consumer group/properties from the manual screenshot.
+25. Add ControlRate after the consumer as shown, then add Output Port named OutputFakerKafkaConsumer.
+26. Create Process Group 4 named Faker_ConsumerOutput.
+27. Add Input Port named FromFakerConsumer and PutFile. Configure PutFile to write into a dedicated output directory.
+28. Connect the groups in order: Faker_ReadDataLake -> Faker_KafkaProducer -> Kafka topic -> Faker_KafkaConsumer -> Faker_ConsumerOutput. The Kafka topic is the transport between producer and consumer; do not draw a NiFi connection through Kafka as though it were a processor.
+29. Enable controller services, start downstream processors/groups first, then upstream. Inspect queue sizes and bulletins.
+30. Verify that the output folder receives records. Compare the count against expected 1000, allowing for any deliberately limited test run or messages already consumed in your test.
+
+Expected output
+The source JSONL is produced, messages are sent to faker_people_1000, NiFi's consumer receives them, and PutFile writes the message contents. If you consume from beginning in a separate terminal, remember that it also reads existing topic messages.
+Common errors: topic does not exist, Kafka broker not running, mismatched topic/port, source file path wrong, line splitting incorrect, or incompatible NiFi Kafka processor version.
+
+============================================================
+PRACTICAL NO. 13 - APACHE SPARK WITH PYSPARK
+============================================================
+Aim
+Configure Spark and PySpark, read CSV into a Spark DataFrame, display the schema and records, and apply DataFrame transformations and SQL.
+
+Basic concept
+Apache Spark is a distributed data-processing engine. PySpark lets you use Spark from Python. A DataFrame is a table-like object containing rows and columns. Spark can filter, select, group, aggregate and query large datasets.
+
+Requirements
+Java compatible with the Spark version, Python, Apache Spark archive, PySpark, CSV file named data.csv, and optional Jupyter Notebook/findspark for the final step. The manual's screenshots contain the sample data and setup paths; copy the same sample rows from page 92 of the supplied PDF if matching the classroom output matters.
+
+Steps 1-5: Install/check Spark
+1. Check Java: java -version. Check Python: python3 --version.
+2. Extract the Spark archive into the location used in your lab. The exact archive filename/path is shown in the manual's screenshot; use the file you downloaded.
+3. Configure environment variables as directed in the manual (JAVA_HOME, SPARK_HOME and PATH). Example only; adjust paths to the actual install:
+   export JAVA_HOME=/path/to/java
+   export SPARK_HOME=/path/to/spark
+   export PATH="$PATH:$SPARK_HOME/bin:$SPARK_HOME/sbin"
+   Put the correct exports into ~/.bashrc if your instructor expects them to persist, then reload with source ~/.bashrc.
+4. Verify: spark-submit --version or spark-shell --version, depending on the installation.
+5. Start the PySpark shell: pyspark. At the prompt, inspect spark.version, then exit with exit().
+
+Steps 6-8: Create data and run the basic read program
+6. Create the project directory and enter it. The manual uses ~/spark_practical in the Jupyter step.
+7. Create data.csv using the same sample rows shown on page 92 of the manual. Its columns must at least include name, age, city and state for the full DataFrame script. Do not rename these columns without changing the program.
+8. Create spark_basic.py with this code:
+
+CODE - spark_basic.py
+from pyspark.sql import SparkSession
+
+spark = (
+    SparkSession.builder
+    .appName("Apache-Spark-Practical")
+    .master("local[*]")
+    .getOrCreate()
+)
+
+print("Spark Version:", spark.version)
+df = spark.read.csv("data.csv", header=True, inferSchema=True)
+print("\n1. First Five Records")
+df.show(5)
+print("\n2. DataFrame Schema")
+df.printSchema()
+print("\n3. Total Number of Records")
+print(df.count())
+spark.stop()
+
+9. Run from the project directory: spark-submit spark_basic.py (or the command shown in your lab environment).
+Expected output: Spark version; first five CSV records; schema with inferred data types; total record count.
+
+Steps 9-10: Complete DataFrame practical
+10. Create spark_dataframe.py and paste the complete program below. It corresponds to the operations listed on pages 95-99 of the manual.
+
+CODE - spark_dataframe.py
+from pyspark.sql import SparkSession
+import pyspark.sql.functions as F
+
+spark = (
+    SparkSession.builder
+    .appName("Spark-DataFrame-Processing")
+    .master("local[*]")
+    .getOrCreate()
+)
+
+print("Spark Version:", spark.version)
+df = spark.read.csv("data.csv", header=True, inferSchema=True)
+
+print("\n1. COMPLETE DATASET")
+df.show(truncate=False)
+
+print("\n2. DATAFRAME SCHEMA")
+df.printSchema()
+
+print("\n3. SELECT NAME AND AGE")
+df.select("name", "age").show()
+
+print("\n4. PEOPLE UNDER 40")
+df.filter(F.col("age") < 40).show()
+
+print("\n5. PEOPLE OVER 40")
+df.filter(F.col("age") > 40).show()
+
+print("\n6. PEOPLE FROM MAHARASHTRA")
+df.filter(F.col("state") == "Maharashtra").select(
+    "name", "age", "city", "state"
+).show()
+
+print("\n7. PEOPLE SORTED BY AGE")
+df.orderBy("age").show()
+
+print("\n8. AGE STATISTICS")
+df.describe("age").show()
+
+print("\n9. PEOPLE COUNT BY STATE")
+df.groupBy("state").count().orderBy("state").show()
+
+print("\n10. AVERAGE AGE")
+df.agg(F.avg("age").alias("average_age")).show()
+
+print("\n11. MINIMUM AND MAXIMUM AGE")
+df.agg(
+    F.min("age").alias("minimum_age"),
+    F.max("age").alias("maximum_age")
+).show()
+
+print("\n12. DISTINCT STATE COUNT")
+df.select(F.countDistinct("state").alias("distinct_states")).show()
+
+df.createOrReplaceTempView("people")
+print("\n13. SQL QUERY: PEOPLE AGED OVER 30")
+result = spark.sql("""
+    SELECT name, age, city, state
+    FROM people
+    WHERE age > 30
+    ORDER BY age DESC
+""")
+result.show()
+
+print("\n14. ADD AGE CATEGORY")
+df_with_category = df.withColumn(
+    "age_category",
+    F.when(F.col("age") < 30, "Young")
+     .when(F.col("age") < 45, "Adult")
+     .otherwise("Senior")
+)
+df_with_category.select("name", "age", "age_category").show()
+
+print("\n15. TOTAL RECORDS")
+print("Total Records:", df.count())
+spark.stop()
+print("\nSpark practical completed successfully.")
+
+11. Execute: spark-submit spark_dataframe.py from the folder containing data.csv.
+12. Check that each output heading appears, filters produce the expected subset, grouped counts are produced, and the final message appears.
+
+Code explanation / key terms
+- SparkSession.builder creates/configures the Spark application session.
+- appName gives the application a readable name.
+- master("local[*]") asks Spark to use all local logical CPU cores; this is local mode, not a multi-machine cluster.
+- read.csv loads a CSV file. header=True treats the first row as column names; inferSchema=True asks Spark to infer types.
+- show prints rows; printSchema displays column names and types; count returns row count.
+- select chooses columns; filter keeps rows satisfying a condition; orderBy sorts; describe provides summary statistics.
+- groupBy(...).count() counts records per group; avg/min/max/countDistinct are aggregate functions.
+- createOrReplaceTempView makes a temporary SQL view; spark.sql runs SQL against that view.
+- withColumn adds/replaces a column; when/otherwise create the age_category rule.
+- spark.stop releases the Spark session.
+
+Expected output
+A set of tables and aggregates for the dataset. Exact names, averages, groups and row counts depend on the exact data.csv values copied from the manual.
+
+Steps 11-12: Jupyter and findspark
+13. The manual shows installing user packages:
+    python3 -m pip install --user findspark notebook
+14. It also shows a virtual environment approach:
+    python3 -m venv ~/spark-venv
+    source ~/spark-venv/bin/activate
+    pip install findspark notebook
+15. Go to the project folder and start Jupyter:
+    cd ~/spark_practical
+    jupyter notebook
+16. Open the notebook link printed in the terminal and use the correct kernel/environment.
+17. If Jupyter cannot find PySpark, verify that findspark/pyspark and Java paths belong to the same environment, and follow the setup shown in the manual's final page.
